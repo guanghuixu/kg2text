@@ -9,7 +9,8 @@ from onmt.decoders.decoder import DecoderBase
 from onmt.modules import MultiHeadedAttention, AverageAttention
 from onmt.modules.position_ffn import PositionwiseFeedForward
 from onmt.utils.misc import sequence_mask
-
+from pytorch_transformers.modeling_bert import BertConfig
+from onmt.decoders.rewriter import Rewriter
 
 class TransformerDecoderLayer(nn.Module):
     """
@@ -206,6 +207,9 @@ class TransformerDecoder(DecoderBase):
 
         self.alignment_layer = alignment_layer
 
+        self.rewriter = Rewriter(BertConfig(hidden_size=d_model, \
+                                num_attention_heads=8, num_hidden_layers=4))
+
     @classmethod
     def from_opt(cls, opt, embeddings):
         """Alternate constructor."""
@@ -282,6 +286,9 @@ class TransformerDecoder(DecoderBase):
                 with_align=with_align)
             if attn_align is not None:
                 attn_aligns.append(attn_align)
+        
+        re_output = self.rewriter(src_memory_bank, src_pad_mask.squeeze(1).float(), \
+                            output, tgt_pad_mask.squeeze(1).float())
 
         output = self.layer_norm(output)
         dec_outs = output.transpose(0, 1).contiguous()
@@ -295,7 +302,8 @@ class TransformerDecoder(DecoderBase):
             # attns["align"] = torch.stack(attn_aligns, 0).mean(0)  # All avg
 
         # TODO change the way attns is returned dict => list or tuple (onnx)
-        return dec_outs, attns
+        # return dec_outs, attns
+        return (dec_outs,self.layer_norm(output).transpose(0, 1).contiguous()), attns
 
     def _init_cache(self, memory_bank):
         self.state["cache"] = {}

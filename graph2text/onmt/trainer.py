@@ -14,6 +14,7 @@ import traceback
 
 import onmt.utils
 from onmt.utils.logging import logger
+from onmt.utils.bleu_eval import Evaluate
 
 
 def build_trainer(opt, device_id, model, fields, optim, model_saver=None):
@@ -141,7 +142,9 @@ class Trainer(object):
                        you must disable target sequence truncating."""
 
         # Set model in training mode.
+        self.BLEU_Eval = Evaluate()
         self.model.train()
+
 
     def _accum_count(self, step):
         for i in range(len(self.accum_steps)):
@@ -318,7 +321,7 @@ class Trainer(object):
                                              with_align=self.with_align, batch=batch)
 
                 # Compute loss.
-                _, batch_stats = self.valid_loss(batch, outputs, attns)
+                _, batch_stats = self.valid_loss(batch, outputs[1], attns)
 
                 # Update statistics.
                 stats.update(batch_stats)
@@ -369,15 +372,19 @@ class Trainer(object):
                 try:
                     loss, batch_stats = self.train_loss(
                         batch,
-                        outputs,
+                        outputs[0],
                         attns,
                         normalization=normalization,
                         shard_size=self.shard_size,
                         trunc_start=j,
                         trunc_size=trunc_size)
 
-                    if loss is not None:
-                        self.optim.backward(loss)
+                    loss_2, batch_stats = self.BLEU_Eval(outputs[0], outputs[1], tgt[1:], \
+                        generator_func=self.train_loss.generator)
+
+                    if loss_2 is not None:
+                        # loss_2.backward()
+                        self.optim.backward(loss_2)
 
                     total_stats.update(batch_stats)
                     report_stats.update(batch_stats)

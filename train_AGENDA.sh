@@ -17,7 +17,6 @@ python -u graph2text/train.py \
                         -valid_steps 5000 \
                         -report_every 50 \
                         -train_steps 400000 \
-                        -warmup_steps 16000 \
                         --share_decoder_embeddings \
                         -share_embeddings \
                         --position_encoding \
@@ -25,7 +24,7 @@ python -u graph2text/train.py \
                         -adam_beta1 0.9 \
                         -adam_beta2 0.98 \
                         -decay_method noam \
-                        -learning_rate 0.5 \
+                        -learning_rate 0.0001 \
                         -max_grad_norm 0.0 \
                         -batch_size 4096 \
                         -batch_type tokens \
@@ -44,4 +43,9 @@ python -u graph2text/train.py \
                         -enc_rnn_size 448 \
                         -dec_rnn_size 512 \
                         -number_edge_types 13 \
-                        -heads 8
+                        -heads 8 \
+			-tensorboard \
+			-log_file debug.log \
+                        -reset_optim all \
+                        -warmup_steps 16000 \
+                        -train_from outputs/model_agenda_cge_lw.pt \

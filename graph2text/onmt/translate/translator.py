@@ -600,6 +600,7 @@ class Translator(object):
         dec_out, dec_attn = self.model.decoder(
             decoder_in, memory_bank, memory_lengths=memory_lengths, step=step
         )
+        dec_out = dec_out[1]
 
         # Generator forward.
         if not self.copy_attn:

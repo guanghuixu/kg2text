@@ -22,7 +22,7 @@ def build_loss_compute(model, tgt_field, opt, train=True):
     for when using a copy mechanism.
     """
     device = torch.device("cuda" if onmt.utils.misc.use_gpu(opt) else "cpu")
-
+    
     padding_idx = tgt_field.vocab.stoi[tgt_field.pad_token]
     unk_idx = tgt_field.vocab.stoi[tgt_field.unk_token]
 
@@ -378,4 +378,4 @@ def shards(state, shard_size, eval_only=False):
                 variables.extend(zip(torch.split(state[k], shard_size),
                                      [v_chunk.grad for v_chunk in v_split]))
         inputs, grads = zip(*variables)
-        torch.autograd.backward(inputs, grads)
+        torch.autograd.backward(inputs, grads, retain_graph=True)

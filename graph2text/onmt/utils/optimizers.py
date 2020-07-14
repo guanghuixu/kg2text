@@ -107,6 +107,103 @@ def build_torch_optimizer(model, opt):
                 dynamic_loss_scale=dynamic_loss_scale)
     return optimizer
 
+def build_my_optimizer(model, opt, special_module='reviewer'):
+    def get_optimizer_parameters(model, special_module, base_lr):
+        optimizer_param_groups = []
+
+        base_params_groups = []
+        special_lr = base_lr * 100.0
+
+        for key, value in model.named_parameters():
+            if not value.requires_grad:
+                continue
+            if special_module in key:
+                optimizer_param_groups.append({
+                    "params": value,
+                    "lr": special_lr
+                })
+            else:
+                base_params_groups.append(value)
+        
+        optimizer_param_groups.insert(0, {"params": base_params_groups})
+
+        return optimizer_param_groups
+
+    params = get_optimizer_parameters(model, special_module, opt.learning_rate)
+    betas = [opt.adam_beta1, opt.adam_beta2]
+    if opt.optim == 'sgd':
+        optimizer = optim.SGD(params, lr=opt.learning_rate)
+    elif opt.optim == 'adagrad':
+        optimizer = optim.Adagrad(
+            params,
+            lr=opt.learning_rate,
+            initial_accumulator_value=opt.adagrad_accumulator_init)
+    elif opt.optim == 'adadelta':
+        optimizer = optim.Adadelta(params, lr=opt.learning_rate)
+    elif opt.optim == 'adafactor':
+        optimizer = AdaFactor(
+            params,
+            non_constant_decay=True,
+            enable_factorization=True,
+            weight_decay=0)
+    elif opt.optim == 'adam':
+        optimizer = optim.Adam(
+            params,
+            lr=opt.learning_rate,
+            betas=betas,
+            eps=1e-9)
+    elif opt.optim == 'sparseadam':
+        dense = []
+        sparse = []
+        for name, param in model.named_parameters():
+            if not param.requires_grad:
+                continue
+            # TODO: Find a better way to check for sparse gradients.
+            if 'embed' in name:
+                sparse.append(param)
+            else:
+                dense.append(param)
+        optimizer = MultipleOptimizer(
+            [optim.Adam(
+                dense,
+                lr=opt.learning_rate,
+                betas=betas,
+                eps=1e-8),
+             optim.SparseAdam(
+                 sparse,
+                 lr=opt.learning_rate,
+                 betas=betas,
+                 eps=1e-8)])
+    elif opt.optim == 'fusedadam':
+        # we use here a FusedAdam() copy of an old Apex repo
+        optimizer = FusedAdam(
+            params,
+            lr=opt.learning_rate,
+            betas=betas)
+    else:
+        raise ValueError('Invalid optimizer type: ' + opt.optim)
+
+    if opt.model_dtype == 'fp16':
+        import apex
+        if opt.optim != 'fusedadam':
+            # In this case use the new AMP API from apex
+            loss_scale = "dynamic" if opt.loss_scale == 0 else opt.loss_scale
+            model, optimizer = apex.amp.initialize(
+                [model, model.generator],
+                optimizer,
+                opt_level=opt.apex_opt_level,
+                loss_scale=loss_scale,
+                keep_batchnorm_fp32=None)
+        else:
+            # In this case use the old FusedAdam with FP16_optimizer wrapper
+            static_loss_scale = opt.loss_scale
+            dynamic_loss_scale = opt.loss_scale == 0
+            optimizer = apex.optimizers.FP16_Optimizer(
+                optimizer,
+                static_loss_scale=static_loss_scale,
+                dynamic_loss_scale=dynamic_loss_scale)
+    return optimizer
+
 
 def make_learning_rate_decay_fn(opt):
     """Returns the learning decay function from options."""
@@ -281,6 +378,7 @@ class Optimizer(object):
 
         optimizer = cls(
             build_torch_optimizer(model, optim_opt),
+            # build_my_optimizer(model, optim_opt),
             optim_opt.learning_rate,
             learning_rate_decay_fn=make_learning_rate_decay_fn(optim_opt),
             max_grad_norm=optim_opt.max_grad_norm)

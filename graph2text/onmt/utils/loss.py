@@ -10,6 +10,27 @@ import torch.nn.functional as F
 import onmt
 from onmt.modules.sparse_losses import SparsemaxLoss
 from onmt.modules.sparse_activations import LogSparsemax
+from onmt.utils.bleu_eval import Evaluate
+
+class PGLoss(nn.Module):
+    """
+    Pseudo-loss that gives corresponding policy gradients (on calling .backward())
+    for adversial training of Generator
+    """
+
+    def __init__(self, ignore_index):
+        super(PGLoss, self).__init__()
+        self.ignore_index = ignore_index
+
+    def forward(self, pred, target, reward):
+
+        one_hot = torch.zeros(pred.size(), dtype=torch.uint8)
+        one_hot = one_hot.cuda()
+        one_hot.scatter_(1, target.data.view(-1, 1), 1).bool()
+        loss = torch.masked_select(pred, one_hot.bool())
+        loss = loss * reward.contiguous().view(-1)
+        loss = -torch.sum(loss)
+        return loss
 
 
 def build_loss_compute(model, tgt_field, opt, train=True):
@@ -43,6 +64,8 @@ def build_loss_compute(model, tgt_field, opt, train=True):
         criterion = SparsemaxLoss(ignore_index=padding_idx, reduction='sum')
     else:
         criterion = nn.NLLLoss(ignore_index=padding_idx, reduction='sum')
+
+    criterion = PGLoss(ignore_index=padding_idx)
 
     # if the loss function operates on vectors of raw logits instead of
     # probabilities, only the first part of the generator needs to be
@@ -87,6 +110,7 @@ class LossComputeBase(nn.Module):
         super(LossComputeBase, self).__init__()
         self.criterion = criterion
         self.generator = generator
+        self.Bleu_eval = Evaluate()
 
     @property
     def padding_idx(self):
@@ -278,12 +302,17 @@ class NMTLossCompute(LossComputeBase):
     def _compute_loss(self, batch, output, target, std_attn=None,
                       coverage_attn=None, align_head=None, ref_align=None):
 
-        bottled_output = self._bottle(output)
+        # bottled_output = self._bottle(output)
 
-        scores = self.generator(bottled_output)
-        gtruth = target.view(-1)
+        scores = self.generator(output).transpose(0, 1)
+        gtruth = target.transpose(0, 1)
+        reward = self.Bleu_eval(scores, gtruth)
+        reward = reward.unsqueeze(1).repeat(1, scores.size(1)).to(scores.device).log()
 
-        loss = self.criterion(scores, gtruth)
+        scores = self._bottle(scores.contiguous())
+        gtruth = gtruth.contiguous().view(-1)
+        loss = self.criterion(scores, gtruth, reward)
+
         if self.lambda_coverage != 0.0:
             coverage_loss = self._compute_coverage_loss(
                 std_attn=std_attn, coverage_attn=coverage_attn)

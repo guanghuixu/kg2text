@@ -18,7 +18,7 @@ from onmt.modules.util_class import Cast
 from onmt.utils.misc import use_gpu
 from onmt.utils.logging import logger
 from onmt.utils.parse import ArgumentParser
-
+from onmt.decoders.rewriter import Rewriter
 
 def build_embeddings(opt, text_field, for_encoder=True):
     """
@@ -229,6 +229,7 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
                 model_opt.pre_word_vecs_dec)
 
     model.generator = generator
+    model.rewriter = Rewriter()
     model.to(device)
     if model_opt.model_dtype == 'fp16' and model_opt.optim == 'fusedadam':
         model.half()

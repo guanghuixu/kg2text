@@ -142,6 +142,7 @@ class Trainer(object):
 
         # Set model in training mode.
         self.model.train()
+        # self.model.rewriter.train()
 
     def _accum_count(self, step):
         for i in range(len(self.accum_steps)):
@@ -317,8 +318,16 @@ class Trainer(object):
                 outputs, attns = valid_model(src, tgt, src_lengths,
                                              with_align=self.with_align, batch=batch)
 
+                pred_1 = self.train_loss.generator(outputs)
+                pred_1 = pred_1.argmax(dim=2)
+                text_1 = self.model.decoder.embeddings(pred_1.unsqueeze(2)).transpose(0, 1).contiguous()
+                graph = self.model.decoder.embeddings(src).transpose(0, 1).contiguous()
+                text_mask = pred_1.data.eq(self.model.decoder.embeddings.word_padding_idx)
+                outputs_2 = self.model.rewriter(text_1, graph)
+                outputs_2 = outputs_2 * text_mask.unsqueeze(2).float()
+
                 # Compute loss.
-                _, batch_stats = self.valid_loss(batch, outputs, attns)
+                _, batch_stats = self.valid_loss(batch, outputs_2, attns)
 
                 # Update statistics.
                 stats.update(batch_stats)
@@ -363,13 +372,21 @@ class Trainer(object):
 
                 outputs, attns = self.model(src, tgt, src_lengths, bptt=bptt,
                                             with_align=self.with_align, batch=batch)
+                pred_1 = self.train_loss.generator(outputs)
+                pred_1 = pred_1.argmax(dim=2)
+                text_1 = self.model.decoder.embeddings(pred_1.unsqueeze(2)).transpose(0, 1).contiguous()
+                graph = self.model.decoder.embeddings(src).transpose(0, 1).contiguous()
+                text_mask = pred_1.data.eq(self.model.decoder.embeddings.word_padding_idx)
+                outputs_2 = self.model.rewriter(text_1, graph)
+                outputs_2 = outputs_2 * text_mask.unsqueeze(2).float()
+
                 bptt = True
 
                 # 3. Compute loss.
                 try:
                     loss, batch_stats = self.train_loss(
                         batch,
-                        outputs,
+                        outputs_2,
                         attns,
                         normalization=normalization,
                         shard_size=self.shard_size,

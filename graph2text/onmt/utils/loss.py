@@ -65,7 +65,7 @@ def build_loss_compute(model, tgt_field, opt, train=True):
     else:
         criterion = nn.NLLLoss(ignore_index=padding_idx, reduction='sum')
 
-    criterion = PGLoss(ignore_index=padding_idx)
+    # criterion = PGLoss(ignore_index=padding_idx)
 
     # if the loss function operates on vectors of raw logits instead of
     # probabilities, only the first part of the generator needs to be
@@ -302,16 +302,19 @@ class NMTLossCompute(LossComputeBase):
     def _compute_loss(self, batch, output, target, std_attn=None,
                       coverage_attn=None, align_head=None, ref_align=None):
 
-        # bottled_output = self._bottle(output)
+        bottled_output = self._bottle(output)
+        scores = self.generator(bottled_output)
+        gtruth = target.view(-1)
+        loss = self.criterion(scores, gtruth)
 
-        scores = self.generator(output).transpose(0, 1)
-        gtruth = target.transpose(0, 1)
-        reward = self.Bleu_eval(scores, gtruth)
-        reward = reward.unsqueeze(1).repeat(1, scores.size(1)).to(scores.device).log()
+        # scores = self.generator(output).transpose(0, 1)
+        # gtruth = target.transpose(0, 1)
+        # reward = self.Bleu_eval(scores, gtruth)
+        # reward = reward.unsqueeze(1).repeat(1, scores.size(1)).to(scores.device).log()
 
-        scores = self._bottle(scores.contiguous())
-        gtruth = gtruth.contiguous().view(-1)
-        loss = self.criterion(scores, gtruth, reward)
+        # scores = self._bottle(scores.contiguous())
+        # gtruth = gtruth.contiguous().view(-1)
+        # loss = self.criterion(scores, gtruth, reward)
 
         if self.lambda_coverage != 0.0:
             coverage_loss = self._compute_coverage_loss(

@@ -83,7 +83,7 @@ def main(opt, device_id, batch_queue=None, semaphore=None):
                 logger.info(' * %s vocab size = %d' % (sn, len(sf.vocab)))
 
     # Build model.
-    model = build_model(model_opt, opt, fields, checkpoint)
+    model, Discriminator = build_model(model_opt, opt, fields, checkpoint)
     n_params, enc, dec = _tally_parameters(model)
     logger.info('encoder: %d' % enc)
     logger.info('decoder: %d' % dec)
@@ -97,7 +97,7 @@ def main(opt, device_id, batch_queue=None, semaphore=None):
     model_saver = build_model_saver(model_opt, opt, model, fields, optim)
 
     trainer = build_trainer(
-        opt, device_id, model, fields, optim, model_saver=model_saver)
+        opt, device_id, model, Discriminator, fields, optim, model_saver=model_saver)
 
     if batch_queue is None:
         if len(opt.data_ids) > 1:

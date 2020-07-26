@@ -18,7 +18,8 @@ from onmt.modules.util_class import Cast
 from onmt.utils.misc import use_gpu
 from onmt.utils.logging import logger
 from onmt.utils.parse import ArgumentParser
-from onmt.decoders.rewriter import Rewriter
+from onmt.utils.bleu_eval import Evaluate
+
 
 def build_embeddings(opt, text_field, for_encoder=True):
     """
@@ -229,15 +230,39 @@ def build_base_model(model_opt, fields, gpu, checkpoint=None, gpu_id=None):
                 model_opt.pre_word_vecs_dec)
 
     model.generator = generator
-    model.rewriter = Rewriter()
     model.to(device)
     if model_opt.model_dtype == 'fp16' and model_opt.optim == 'fusedadam':
         model.half()
     return model
 
 
+def build_discriminator_model(opt, gpu, gpu_id=None):
+    d_num_class = 2
+    d_embed_dim = 64
+    d_filter_sizes = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 20]
+    d_num_filters = [100, 200, 200, 200, 200, 100, 100, 100, 100, 100, 160, 160]
+    d_dropout_prob = 0.2
+    Discriminator = onmt.models.model.Discriminator(d_num_class, 19941, d_embed_dim, d_filter_sizes, d_num_filters,
+                                  d_dropout_prob)
+    Discriminator.bleu_eval = Evaluate()
+
+    if gpu and gpu_id is not None:
+        device = torch.device("cuda", gpu_id)
+    elif gpu and not gpu_id:
+        device = torch.device("cuda")
+    elif not gpu:
+        device = torch.device("cpu")
+
+    Discriminator_cpt = torch.load("1_pretrain_D")
+    Discriminator.load_state_dict(Discriminator_cpt)
+    Discriminator.to(device)
+
+    return Discriminator
+
+
 def build_model(model_opt, opt, fields, checkpoint):
     logger.info('Building model...')
     model = build_base_model(model_opt, fields, use_gpu(opt), checkpoint)
+    discriminator = build_discriminator_model(opt, use_gpu(opt))
     logger.info(model)
-    return model
+    return model, discriminator

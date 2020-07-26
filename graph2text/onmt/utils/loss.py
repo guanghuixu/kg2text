@@ -10,7 +10,6 @@ import torch.nn.functional as F
 import onmt
 from onmt.modules.sparse_losses import SparsemaxLoss
 from onmt.modules.sparse_activations import LogSparsemax
-from onmt.utils.bleu_eval import Evaluate
 
 class PGLoss(nn.Module):
     """
@@ -32,8 +31,7 @@ class PGLoss(nn.Module):
         loss = -torch.sum(loss)
         return loss
 
-
-def build_loss_compute(model, tgt_field, opt, train=True):
+def build_loss_compute(model, Discriminator, tgt_field, opt, train=True):
     """
     Returns a LossCompute subclass which wraps around an nn.Module subclass
     (such as nn.NLLLoss) which defines the loss criterion. The LossCompute
@@ -65,14 +63,15 @@ def build_loss_compute(model, tgt_field, opt, train=True):
     else:
         criterion = nn.NLLLoss(ignore_index=padding_idx, reduction='sum')
 
-    # criterion = PGLoss(ignore_index=padding_idx)
-
     # if the loss function operates on vectors of raw logits instead of
     # probabilities, only the first part of the generator needs to be
     # passed to the NMTLossCompute. At the moment, the only supported
     # loss function of this kind is the sparsemax loss.
+    criterion = PGLoss(ignore_index=padding_idx)
+
     use_raw_logits = isinstance(criterion, SparsemaxLoss)
     loss_gen = model.generator[0] if use_raw_logits else model.generator
+
     if opt.copy_attn:
         compute = onmt.modules.CopyGeneratorLossCompute(
             criterion, loss_gen, tgt_field.vocab, opt.copy_loss_by_seqlength,
@@ -80,7 +79,7 @@ def build_loss_compute(model, tgt_field, opt, train=True):
         )
     else:
         compute = NMTLossCompute(
-            criterion, loss_gen, lambda_coverage=opt.lambda_coverage,
+            criterion, loss_gen, Discriminator, lambda_coverage=opt.lambda_coverage,
             lambda_align=opt.lambda_align)
     compute.to(device)
 
@@ -106,11 +105,11 @@ class LossComputeBase(nn.Module):
         normalzation (str): normalize by "sents" or "tokens"
     """
 
-    def __init__(self, criterion, generator):
+    def __init__(self, criterion, generator, Discriminator):
         super(LossComputeBase, self).__init__()
         self.criterion = criterion
         self.generator = generator
-        self.Bleu_eval = Evaluate()
+        self.Discriminator = Discriminator
 
     @property
     def padding_idx(self):
@@ -250,9 +249,9 @@ class NMTLossCompute(LossComputeBase):
     Standard NMT Loss Computation.
     """
 
-    def __init__(self, criterion, generator, normalization="sents",
+    def __init__(self, criterion, generator, Discrminator, normalization="sents",
                  lambda_coverage=0.0, lambda_align=0.0):
-        super(NMTLossCompute, self).__init__(criterion, generator)
+        super(NMTLossCompute, self).__init__(criterion, generator, Discrminator)
         self.lambda_coverage = lambda_coverage
         self.lambda_align = lambda_align
 
@@ -302,19 +301,30 @@ class NMTLossCompute(LossComputeBase):
     def _compute_loss(self, batch, output, target, std_attn=None,
                       coverage_attn=None, align_head=None, ref_align=None):
 
-        bottled_output = self._bottle(output)
-        scores = self.generator(bottled_output)
-        gtruth = target.view(-1)
-        loss = self.criterion(scores, gtruth)
+        # bottled_output = self._bottle(output)
 
-        # scores = self.generator(output).transpose(0, 1)
-        # gtruth = target.transpose(0, 1)
-        # reward = self.Bleu_eval(scores, gtruth)
-        # reward = reward.unsqueeze(1).repeat(1, scores.size(1)).to(scores.device).log()
+        scores = self.generator(output).transpose(0, 1)
+        out_ = scores.argmax(dim=-1)
+        batch, seq_len = out_.size()
+        if 468-seq_len>0:
+            one = torch.ones([batch, 468-seq_len], dtype=torch.int64).to(out_.device)
+            out_ = torch.cat([out_, one], dim=1)
+        pred = self.Discriminator(out_)
+        pred = pred.cpu().data[:, 1].numpy()
+        rewards = []
+        for i in range(seq_len):
+            rewards.append(pred)
+        rewards = torch.tensor(rewards).cuda()
+        rewards = rewards.transpose(0, 1)
 
-        # scores = self._bottle(scores.contiguous())
-        # gtruth = gtruth.contiguous().view(-1)
-        # loss = self.criterion(scores, gtruth, reward)
+        gtruth = target.transpose(0, 1)
+
+        loss = self.criterion(scores.contiguous().view(-1, scores.size(2)), gtruth.contiguous().view(-1), rewards)
+        
+        rewards = self.Discriminator.bleu_eval(scores, gtruth)
+        rewards = rewards.to(gtruth.device).unsqueeze(1).repeat(1, gtruth.size(1)).log()
+        loss_1 = self.criterion(scores.contiguous().view(-1, scores.size(2)), gtruth.contiguous().view(-1), rewards)
+        loss = loss + 0.5 * loss_1
 
         if self.lambda_coverage != 0.0:
             coverage_loss = self._compute_coverage_loss(
@@ -328,7 +338,7 @@ class NMTLossCompute(LossComputeBase):
             align_loss = self._compute_alignement_loss(
                 align_head=align_head, ref_align=ref_align)
             loss += align_loss
-        stats = self._stats(loss.clone(), scores, gtruth)
+        stats = self._stats(loss.clone(), scores.contiguous().view(-1, scores.size(2)), gtruth.contiguous().view(-1))
 
         return loss, stats
 

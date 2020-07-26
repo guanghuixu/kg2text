@@ -87,15 +87,15 @@ class Statistics(object):
 
     def accuracy(self):
         """ compute accuracy """
-        return 100 * (self.n_correct / self.n_words)
+        return 100 * (self.n_correct / max(self.n_words, 1))
 
     def xent(self):
         """ compute cross entropy """
-        return self.loss / self.n_words
+        return self.loss / max(self.n_words, 1)
 
     def ppl(self):
         """ compute perplexity """
-        return math.exp(min(self.loss / self.n_words, 100))
+        return math.exp(min(self.loss / max(self.n_words, 1), 100))
 
     def elapsed_time(self):
         """ compute elapsed time """

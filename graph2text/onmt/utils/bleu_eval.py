@@ -115,7 +115,7 @@ class Evaluate(nn.Module):
         # compute scores
         final_scores = self.score(ref, hypo)
         final_scores = final_scores['Bleu_4']  # 0.1 * final_scores['Bleu_1'] + 0.2 * final_scores['Bleu_2'] + \
-        #            0.3 * final_scores['Bleu_3'] + 0.4 * final_scores['Bleu_4']
+                #    0.3 * final_scores['Bleu_3'] + 0.4 * final_scores['Bleu_4']
         return final_scores
 
 

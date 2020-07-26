@@ -27,18 +27,18 @@ def model_opts(parser):
     group.add('--tgt_word_vec_size', '-tgt_word_vec_size',
               type=int, default=500,
               help='Word embedding size for tgt.')
-    group.add('--word_vec_size', '-word_vec_size', type=int, default=-1,
+    group.add('--word_vec_size', '-word_vec_size', type=int, default=512,
               help='Word embedding size for src and tgt.')
 
     group.add('--share_decoder_embeddings', '-share_decoder_embeddings',
-              action='store_true',
+              default=True,
               help="Use a shared weight matrix for the input and "
                    "output word  embeddings in the decoder.")
-    group.add('--share_embeddings', '-share_embeddings', action='store_true',
+    group.add('--share_embeddings', '-share_embeddings', default=True,
               help="Share the word embeddings between encoder "
                    "and decoder. Need to use shared dictionary for this "
                    "option.")
-    group.add('--position_encoding', '-position_encoding', action='store_true',
+    group.add('--position_encoding', '-position_encoding', default=True,
               help="Use a sin to mark relative words positions. "
                    "Necessary for non-RNN style models.")
 
@@ -68,12 +68,12 @@ def model_opts(parser):
               choices=['fp32', 'fp16'],
               help='Data type of the model.')
 
-    group.add('--encoder_type', '-encoder_type', type=str, default='rnn',
+    group.add('--encoder_type', '-encoder_type', type=str, default='cge-lw',
               choices=['rnn', 'brnn', 'mean', 'transformer', 'cnn', 'cge-lw', 'cge-lw2', 'cge', 'pge-lw', 'pge'],
               help="Type of encoder layer to use. Non-RNN layers "
                    "are experimental. Options are "
                    "[rnn|brnn|mean|transformer|cnn].")
-    group.add('--decoder_type', '-decoder_type', type=str, default='rnn',
+    group.add('--decoder_type', '-decoder_type', type=str, default='transformer',
               choices=['rnn', 'transformer', 'cnn'],
               help="Type of decoder layer to use. Non-RNN layers "
                    "are experimental. Options are "
@@ -81,20 +81,20 @@ def model_opts(parser):
 
     group.add('--layers', '-layers', type=int, default=-1,
               help='Number of layers in enc/dec.')
-    group.add('--enc_layers', '-enc_layers', type=int, default=2,
+    group.add('--enc_layers', '-enc_layers', type=int, default=6,
               help='Number of layers in the encoder')
-    group.add('--dec_layers', '-dec_layers', type=int, default=2,
+    group.add('--dec_layers', '-dec_layers', type=int, default=6,
               help='Number of layers in the decoder')
     group.add('--local_layers', '-local_layers', type=int, default=3,
               help='Number of layers in the decoder')
     group.add('--rnn_size', '-rnn_size', type=int, default=-1,
               help="Size of rnn hidden states. Overwrites "
                    "enc_rnn_size and dec_rnn_size")
-    group.add('--enc_rnn_size', '-enc_rnn_size', type=int, default=500,
+    group.add('--enc_rnn_size', '-enc_rnn_size', type=int, default=448,
               help="Size of encoder rnn hidden states. "
                    "Must be equal to dec_rnn_size except for "
                    "speech-to-text.")
-    group.add('--dec_rnn_size', '-dec_rnn_size', type=int, default=500,
+    group.add('--dec_rnn_size', '-dec_rnn_size', type=int, default=512,
               help="Size of decoder rnn hidden states. "
                    "Must be equal to enc_rnn_size except for "
                    "speech-to-text.")
@@ -344,7 +344,7 @@ def train_opts(parser):
     """ Training and saving options """
 
     group = parser.add_argument_group('General')
-    group.add('--data', '-data', required=True,
+    group.add('--data', '-data', default='data/agenda/agenda',
               help='Path prefix to the ".train.pt" and '
                    '".valid.pt" file path from preprocess.py')
 
@@ -357,13 +357,13 @@ def train_opts(parser):
               default=[1], help="""Weights of different corpora,
               should follow the same order as in -data_ids.""")
 
-    group.add('--save_model', '-save_model', default='model',
+    group.add('--save_model', '-save_model', default='data/agenda/',
               help="Model filename (the model will be saved as "
                    "<save_model>_N.pt where N is the number "
                    "of steps")
 
     group.add('--save_checkpoint_steps', '-save_checkpoint_steps',
-              type=int, default=5000,
+              type=int, default=100000,
               help="""Save a checkpoint every X steps""")
     group.add('--keep_checkpoint', '-keep_checkpoint', type=int, default=-1,
               help="Keep X checkpoints (negative: keep all)")
@@ -371,7 +371,7 @@ def train_opts(parser):
     # GPU
     group.add('--gpuid', '-gpuid', default=[], nargs='*', type=int,
               help="Deprecated see world_size and gpu_ranks.")
-    group.add('--gpu_ranks', '-gpu_ranks', default=[], nargs='*', type=int,
+    group.add('--gpu_ranks', '-gpu_ranks', default=[0], nargs='*', type=int,
               help="list of ranks of each process.")
     group.add('--world_size', '-world_size', default=1, type=int,
               help="total number of distributed processes.")
@@ -393,15 +393,15 @@ def train_opts(parser):
 
     # Init options
     group = parser.add_argument_group('Initialization')
-    group.add('--param_init', '-param_init', type=float, default=0.1,
+    group.add('--param_init', '-param_init', type=float, default=0.0,
               help="Parameters are initialized over uniform distribution "
                    "with support (-param_init, param_init). "
                    "Use 0 to not use initialization")
-    group.add('--param_init_glorot', '-param_init_glorot', action='store_true',
+    group.add('--param_init_glorot', '-param_init_glorot', default=True,
               help="Init parameters with xavier_uniform. "
                    "Required for transformer.")
 
-    group.add('--train_from', '-train_from', default='', type=str,
+    group.add('--train_from', '-train_from', default='../model_agenda_cge_lw.pt', type=str,
               help="If training from a checkpoint then this is the "
                    "path to the pretrained model's state_dict.")
     group.add('--reset_optim', '-reset_optim', default='none',
@@ -427,7 +427,7 @@ def train_opts(parser):
 
     # Optimization options
     group = parser.add_argument_group('Optimization- Type')
-    group.add('--batch_size', '-batch_size', type=int, default=64,
+    group.add('--batch_size', '-batch_size', type=int, default=8,
               help='Maximum batch size for training')
     group.add('--batch_type', '-batch_type', default='sents',
               choices=["sents", "tokens"],
@@ -440,7 +440,7 @@ def train_opts(parser):
               homogeneous batches and reduce padding, and yield
               the produced batches in a shuffled way.
               Inspired by torchtext's pool mechanism.""")
-    group.add('--normalization', '-normalization', default='sents',
+    group.add('--normalization', '-normalization', default='tokens',
               choices=["sents", "tokens"],
               help='Normalization method of the gradient.')
     group.add('--accum_count', '-accum_count', type=int, nargs='+',
@@ -451,16 +451,16 @@ def train_opts(parser):
                    "Recommended for Transformer.")
     group.add('--accum_steps', '-accum_steps', type=int, nargs='+',
               default=[0], help="Steps at which accum_count values change")
-    group.add('--valid_steps', '-valid_steps', type=int, default=10000,
+    group.add('--valid_steps', '-valid_steps', type=int, default=5000,
               help='Perfom validation every X steps')
     group.add('--valid_batch_size', '-valid_batch_size', type=int, default=32,
               help='Maximum batch size for validation')
     group.add('--max_generator_batches', '-max_generator_batches',
-              type=int, default=32,
+              type=int, default=100,
               help="Maximum batches of words in a sequence to run "
                    "the generator on in parallel. Higher is faster, but "
                    "uses more memory. Set to 0 to disable.")
-    group.add('--train_steps', '-train_steps', type=int, default=100000,
+    group.add('--train_steps', '-train_steps', type=int, default=1600000,
               help='Number of training steps')
     group.add('--single_pass', '-single_pass', action='store_true',
               help="Make a single pass over the training dataset.")
@@ -471,7 +471,7 @@ def train_opts(parser):
     group.add('--early_stopping_criteria', '-early_stopping_criteria',
               nargs="*", default=None,
               help='Criteria to use for early stopping.')
-    group.add('--optim', '-optim', default='sgd',
+    group.add('--optim', '-optim', default='adam',
               choices=['sgd', 'adagrad', 'adadelta', 'adam',
                        'sparseadam', 'adafactor', 'fusedadam'],
               help="Optimization method.")
@@ -480,14 +480,14 @@ def train_opts(parser):
               help="Initializes the accumulator values in adagrad. "
                    "Mirrors the initial_accumulator_value option "
                    "in the tensorflow adagrad (use 0.1 for their default).")
-    group.add('--max_grad_norm', '-max_grad_norm', type=float, default=5,
+    group.add('--max_grad_norm', '-max_grad_norm', type=float, default=0.0,
               help="If the norm of the gradient vector exceeds this, "
                    "renormalize it to have the norm equal to "
                    "max_grad_norm")
     group.add('--dropout', '-dropout', type=float, default=[0.3], nargs='+',
               help="Dropout probability; applied in LSTM stacks.")
     group.add('--attention_dropout', '-attention_dropout', type=float,
-              default=[0.1], nargs='+',
+              default=[0.3], nargs='+',
               help="Attention Dropout probability.")
     group.add('--dropout_steps', '-dropout_steps', type=int, nargs='+',
               default=[0], help="Steps at which dropout changes.")
@@ -499,7 +499,7 @@ def train_opts(parser):
                    "the literature, seemingly giving good results, "
                    "so we would discourage changing this value from "
                    "the default without due consideration.")
-    group.add('--adam_beta2', '-adam_beta2', type=float, default=0.999,
+    group.add('--adam_beta2', '-adam_beta2', type=float, default=0.98,
               help='The beta2 parameter used by Adam. '
                    'Typically a value of 0.999 is recommended, as this is '
                    'the value suggested by the original paper describing '
@@ -511,7 +511,7 @@ def train_opts(parser):
                    'suggested a value of 0.98 for beta2, this parameter may '
                    'not work well for normal models / default '
                    'baselines.')
-    group.add('--label_smoothing', '-label_smoothing', type=float, default=0.0,
+    group.add('--label_smoothing', '-label_smoothing', type=float, default=0.1,
               help="Label smoothing value epsilon. "
                    "Probabilities of all non-true labels "
                    "will be smoothed by epsilon / (vocab_size - 1). "
@@ -532,7 +532,7 @@ def train_opts(parser):
 
     # learning rate
     group = parser.add_argument_group('Optimization- Rate')
-    group.add('--learning_rate', '-learning_rate', type=float, default=1.0,
+    group.add('--learning_rate', '-learning_rate', type=float, default=0.5,
               help="Starting learning rate. "
                    "Recommended settings: sgd = 1, adagrad = 0.1, "
                    "adadelta = 1, adam = 0.001")
@@ -548,10 +548,10 @@ def train_opts(parser):
     group.add('--decay_steps', '-decay_steps', type=int, default=10000,
               help="Decay every decay_steps")
 
-    group.add('--decay_method', '-decay_method', type=str, default="none",
+    group.add('--decay_method', '-decay_method', type=str, default="noam",
               choices=['noam', 'noamwd', 'rsqrt', 'none'],
               help="Use a custom decay rate.")
-    group.add('--warmup_steps', '-warmup_steps', type=int, default=4000,
+    group.add('--warmup_steps', '-warmup_steps', type=int, default=16000,
               help="Number of warmup steps for custom decay.")
 
     group = parser.add_argument_group('Logging')
@@ -735,13 +735,13 @@ def translate_opts(parser):
                    "decoded sentences")
 
     group = parser.add_argument_group('Efficiency')
-    group.add('--batch_size', '-batch_size', type=int, default=30,
+    group.add('--batch_size', '-batch_size', type=int, default=8,
               help='Batch size')
-    group.add('--batch_type', '-batch_type', default='sents',
+    group.add('--batch_type', '-batch_type', default='tokens',
               choices=["sents", "tokens"],
               help="Batch grouping for batch_size. Standard "
                    "is sents. Tokens will do dynamic batching")
-    group.add('--gpu', '-gpu', type=int, default=-1,
+    group.add('--gpu', '-gpu', type=int, default=2,
               help="Device to run on")
 
     # Options most relevant to speech.

@@ -16,7 +16,7 @@ import onmt.utils
 from onmt.utils.logging import logger
 
 
-def build_trainer(opt, device_id, model, fields, optim, model_saver=None):
+def build_trainer(opt, device_id, model, Discriminator, fields, optim, model_saver=None):
     """
     Simplify `Trainer` creation based on user `opt`s*
 
@@ -32,9 +32,9 @@ def build_trainer(opt, device_id, model, fields, optim, model_saver=None):
     """
 
     tgt_field = dict(fields)["tgt"].base_field
-    train_loss = onmt.utils.loss.build_loss_compute(model, tgt_field, opt)
+    train_loss = onmt.utils.loss.build_loss_compute(model, Discriminator, tgt_field, opt)
     valid_loss = onmt.utils.loss.build_loss_compute(
-        model, tgt_field, opt, train=False)
+        model, Discriminator, tgt_field, opt, train=False)
 
     trunc_size = opt.truncated_decoder  # Badly named...
     shard_size = opt.max_generator_batches if opt.model_dtype == 'fp32' else 0
@@ -58,7 +58,7 @@ def build_trainer(opt, device_id, model, fields, optim, model_saver=None):
         if opt.early_stopping > 0 else None
 
     report_manager = onmt.utils.build_report_manager(opt, gpu_rank)
-    trainer = onmt.Trainer(model, train_loss, valid_loss, optim, trunc_size,
+    trainer = onmt.Trainer(model, Discriminator, train_loss, valid_loss, optim, trunc_size,
                            shard_size, norm_method,
                            accum_count, accum_steps,
                            n_gpu, gpu_rank,
@@ -100,7 +100,7 @@ class Trainer(object):
                 Thus nothing will be saved if this parameter is None
     """
 
-    def __init__(self, model, train_loss, valid_loss, optim,
+    def __init__(self, model, Discriminator, train_loss, valid_loss, optim,
                  trunc_size=0, shard_size=32,
                  norm_method="sents", accum_count=[1],
                  accum_steps=[0],
@@ -110,6 +110,7 @@ class Trainer(object):
                  earlystopper=None, dropout=[0.3], dropout_steps=[0]):
         # Basic attributes.
         self.model = model
+        self.Discriminator = Discriminator
         self.train_loss = train_loss
         self.valid_loss = valid_loss
         self.optim = optim
@@ -142,7 +143,6 @@ class Trainer(object):
 
         # Set model in training mode.
         self.model.train()
-        # self.model.rewriter.train()
 
     def _accum_count(self, step):
         for i in range(len(self.accum_steps)):
@@ -318,16 +318,8 @@ class Trainer(object):
                 outputs, attns = valid_model(src, tgt, src_lengths,
                                              with_align=self.with_align, batch=batch)
 
-                pred_1 = self.train_loss.generator(outputs)
-                pred_1 = pred_1.argmax(dim=2)
-                text_1 = self.model.decoder.embeddings(pred_1.unsqueeze(2)).transpose(0, 1).contiguous()
-                graph = self.model.decoder.embeddings(src).transpose(0, 1).contiguous()
-                text_mask = pred_1.data.eq(self.model.decoder.embeddings.word_padding_idx)
-                outputs_2 = self.model.rewriter(text_1, graph)
-                outputs_2 = outputs_2 * text_mask.unsqueeze(2).float()
-
                 # Compute loss.
-                _, batch_stats = self.valid_loss(batch, outputs_2, attns)
+                _, batch_stats = self.valid_loss(batch, outputs, attns)
 
                 # Update statistics.
                 stats.update(batch_stats)
@@ -372,21 +364,13 @@ class Trainer(object):
 
                 outputs, attns = self.model(src, tgt, src_lengths, bptt=bptt,
                                             with_align=self.with_align, batch=batch)
-                pred_1 = self.train_loss.generator(outputs)
-                pred_1 = pred_1.argmax(dim=2)
-                text_1 = self.model.decoder.embeddings(pred_1.unsqueeze(2)).transpose(0, 1).contiguous()
-                graph = self.model.decoder.embeddings(src).transpose(0, 1).contiguous()
-                text_mask = pred_1.data.eq(self.model.decoder.embeddings.word_padding_idx)
-                outputs_2 = self.model.rewriter(text_1, graph)
-                outputs_2 = outputs_2 * text_mask.unsqueeze(2).float()
-
                 bptt = True
 
                 # 3. Compute loss.
                 try:
                     loss, batch_stats = self.train_loss(
                         batch,
-                        outputs_2,
+                        outputs,
                         attns,
                         normalization=normalization,
                         shard_size=self.shard_size,
